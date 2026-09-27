@@ -33,9 +33,19 @@ the local agent sees plain-text questions on stdin; you see a thread list.
 ## Quick start
 
 ```sh
-npm install
-npm run dev            # first run creates backchannel.config.json and prints two tokens
+git clone https://github.com/tayden-b/backchannel && cd backchannel
+npm install && npm run up
 ```
+
+`up` starts the server, opens a tunnel, and prints one paste-ready block per agent —
+copy the two blocks it prints (or use the Copy buttons in the UI's "Connect agents"
+panel) into Muse and Instinct. Tunnel preference: **Tailscale Funnel** if installed
+and running (stable URL) → **cloudflared quick tunnel** (URL changes each restart —
+you'll need to re-paste). If neither is installed it prints install hints and runs
+local-only. Skip the tunnel with `--no-tunnel`, or supply a public URL via
+`BACKCHANNEL_PUBLIC_URL`.
+
+The first run creates `backchannel.config.json` and generates per-agent tokens.
 
 Edit `backchannel.config.json`:
 
@@ -48,12 +58,11 @@ Edit `backchannel.config.json`:
 | `askTimeoutMs` | How long `ask` blocks before returning `pending` (keep under the cloud agent's tool timeout). |
 | `rateLimit.perCallerPerMinute` | Per-token cap on tool calls. |
 
-Then expose it:
-
-```sh
-npm run tunnel         # cloudflared quick tunnel → https://<random>.trycloudflare.com
-# or, for a stable URL:  tailscale funnel 7777   /  a named Cloudflare tunnel
-```
+Tunnels: `npm run up` handles this automatically — Tailscale Funnel when available
+(stable URL), else a cloudflared quick tunnel (`https://<random>.trycloudflare.com`,
+new URL on every restart → re-paste the connect block). `npm run tunnel` still runs a
+quick tunnel manually, and a named Cloudflare tunnel or `tailscale funnel 7777` both
+work for a stable URL you can set via `BACKCHANNEL_PUBLIC_URL`.
 
 ## Connecting the cloud agents
 

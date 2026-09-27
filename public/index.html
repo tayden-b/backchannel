@@ -29,6 +29,21 @@
   }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; }
   header .live { font-size: 11px; color: var(--muted); }
+  header .spacer { flex: 1; }
+  #connect { border-bottom: 1px solid var(--border); background: var(--panel); }
+  #connect-head {
+    padding: 8px 16px; cursor: pointer; font-size: 12px; font-weight: 600;
+    color: var(--muted); display: flex; justify-content: space-between;
+  }
+  #connect-body { padding: 0 16px 12px; font-size: 13px; }
+  #connect-body .mcpurl {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; margin: 4px 0 10px; word-break: break-all;
+  }
+  #connect-body .agent { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  #connect-body .agent .name { min-width: 70px; }
+  #connect-body button { padding: 4px 10px; font-size: 12px; }
   header .live.on { color: var(--answered); }
   main { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
   #list { border-right: 1px solid var(--border); overflow-y: auto; }
@@ -75,7 +90,12 @@
 <header>
   <h1>backchannel</h1>
   <span class="live" id="live">connecting…</span>
+  <span class="spacer"></span>
 </header>
+<div id="connect">
+  <div id="connect-head"><span>Connect agents</span><span id="connect-caret">▾</span></div>
+  <div id="connect-body">Loading…</div>
+</div>
 <main>
   <div id="list"></div>
   <div id="detail">
@@ -143,6 +163,51 @@ async function load() {
   renderList(); renderDetail();
 }
 
+const connectBody = document.getElementById("connect-body");
+const connectCaret = document.getElementById("connect-caret");
+let connectOpen = true;
+
+document.getElementById("connect-head").addEventListener("click", () => {
+  connectOpen = !connectOpen;
+  connectBody.style.display = connectOpen ? "" : "none";
+  connectCaret.textContent = connectOpen ? "▾" : "▸";
+});
+function setConnectOpen(open) {
+  connectOpen = open;
+  connectBody.style.display = open ? "" : "none";
+  connectCaret.textContent = open ? "▾" : "▸";
+}
+
+async function loadConnect() {
+  const res = await fetch("/api/connect");
+  const data = await res.json();
+  if (!data.publicUrl) {
+    connectBody.innerHTML = `<div style="color:var(--muted)">No tunnel yet — run <code>npm run up</code></div>`;
+    return;
+  }
+  connectBody.innerHTML = `
+    <div style="color:var(--muted);margin-bottom:2px">MCP endpoint (${esc(data.tunnelMode || "")}):</div>
+    <div class="mcpurl">${esc(data.publicUrl)}/mcp</div>
+    ${(data.agents || []).map(a => `
+      <div class="agent">
+        <span class="name">${esc(a.name)}</span>
+        <button class="secondary copy" data-name="${esc(a.name)}">Copy message for ${esc(a.name[0].toUpperCase() + a.name.slice(1))}</button>
+      </div>`).join("")}`;
+  connectBody.querySelectorAll(".copy").forEach(btn =>
+    btn.addEventListener("click", async () => {
+      const agent = (data.agents || []).find(a => a.name === btn.dataset.name);
+      if (!agent) return;
+      try {
+        await navigator.clipboard.writeText(agent.pasteText);
+        btn.textContent = "Copied!";
+      } catch {
+        btn.textContent = "Copy failed — see console";
+        console.log(agent.pasteText);
+      }
+      setTimeout(() => { btn.textContent = `Copy message for ${agent.name[0].toUpperCase() + agent.name.slice(1)}`; }, 1500);
+    }));
+}
+
 document.getElementById("send").addEventListener("click", async () => {
   const body = replyEl.value.trim();
   if (!body || !selected) return;
@@ -169,7 +234,8 @@ es.onmessage = (ev) => {
   }
 };
 
-load();
+loadConnect();
+load().then(() => { if (threads.length > 0) setConnectOpen(false); });
 </script>
 </body>
 </html>

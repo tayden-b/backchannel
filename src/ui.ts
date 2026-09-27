@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import { bus, emitThread, runResponder } from "./responder.js";
+import { connectInstructions } from "./connect.js";
+import { state } from "./state.js";
 
 const INDEX_HTML = readFileSync(
   fileURLToPath(new URL("../public/index.html", import.meta.url)),
@@ -43,6 +45,18 @@ export function uiRouter(db: Db, config: Config): Router {
       .listThreads()
       .map((t) => ({ ...t, messages: db.getMessages(t.id) }));
     res.json({ threads });
+  });
+
+  router.get("/api/connect", (_req, res) => {
+    if (!state.publicUrl) {
+      res.json({ publicUrl: null, tunnelMode: null, agents: [] });
+      return;
+    }
+    res.json({
+      publicUrl: state.publicUrl,
+      tunnelMode: state.tunnelMode,
+      ...connectInstructions(config, state.publicUrl),
+    });
   });
 
   router.get("/api/events", (req: Request, res: Response) => {

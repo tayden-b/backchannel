@@ -143,6 +143,25 @@ describe("mcp flow", () => {
     await client.close();
   });
 
+  it("auto-answers the bootstrap question without the responder", async () => {
+    const client = await mcpClient(ctx.base);
+    const result = await client.callTool({
+      name: "ask",
+      arguments: { question: "  What is this connection for?! " },
+    });
+    const sc = structured(result);
+    expect(sc.status).toBe("answered");
+    expect(String(sc.answer)).toContain("private backchannel");
+
+    const checked = structured(
+      await client.callTool({ name: "check", arguments: { thread_id: sc.thread_id } })
+    );
+    const msgs = checked.messages as { sender: string; body: string }[];
+    expect(msgs.at(-1)?.sender).toBe("local");
+    expect(msgs.at(-1)?.body).toContain("knowledge base");
+    await client.close();
+  });
+
   it("rejects non-localhost Host headers on the UI API", async () => {
     // fetch() won't send a custom Host header; use http.request directly.
     const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {

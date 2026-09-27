@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Config } from "./config.js";
 import type { Db, Thread } from "./db.js";
+import { BOOTSTRAP_ANSWER, BOOTSTRAP_QUESTION } from "./connect.js";
 import { runResponder, waitForThread, emitThread } from "./responder.js";
 
 const DEDUPE_WINDOW_MS = 60_000;
@@ -73,6 +74,23 @@ function buildServer(db: Db, config: Config, caller: string, rateOk: () => boole
         if (!thread || thread.caller !== caller) {
           return text(`unknown thread_id ${thread_id}`, { error: "unknown thread" }, true);
         }
+      }
+
+      // Bootstrap question: answered locally, never sent to the responder.
+      const normalized = question
+        .trim()
+        .toLowerCase()
+        .replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
+      if (normalized === BOOTSTRAP_QUESTION) {
+        if (!thread) thread = db.createThread(caller, question);
+        db.addMessage(thread.id, caller, question);
+        db.addMessage(thread.id, "local", BOOTSTRAP_ANSWER);
+        const updated = db.setStatus(thread.id, "answered")!;
+        emitThread(updated);
+        return text(
+          JSON.stringify({ thread_id: thread.id, status: "answered", answer: BOOTSTRAP_ANSWER }),
+          { thread_id: thread.id, status: "answered", answer: BOOTSTRAP_ANSWER }
+        );
       }
 
       // Dedupe: identical question in the same thread within 60s returns current state.
