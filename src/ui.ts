@@ -49,13 +49,14 @@ export function uiRouter(db: Db, config: Config): Router {
 
   router.get("/api/connect", (_req, res) => {
     if (!state.publicUrl) {
-      res.json({ publicUrl: null, tunnelMode: null, agents: [] });
+      res.json({ publicUrl: null, tunnelMode: null, agents: [], drive: state.drive });
       return;
     }
     res.json({
       publicUrl: state.publicUrl,
       tunnelMode: state.tunnelMode,
-      ...connectInstructions(config, state.publicUrl),
+      ...connectInstructions(config, { publicUrl: state.publicUrl, docUrl: state.drive.docUrl }),
+      drive: state.drive,
     });
   });
 

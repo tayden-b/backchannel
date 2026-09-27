@@ -1,10 +1,13 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { loadConfig } from "./config.js";
 import { startServer } from "./index.js";
 import { connectInstructions } from "./connect.js";
-import { setPublicUrl } from "./state.js";
+import { setPublicUrl, setDrive, state } from "./state.js";
+import { ensureAuthed, resolveDoc } from "./gdrive.js";
+import { startDocSync } from "./dsync.js";
 
 function onPath(bin: string): boolean {
   const r = spawnSync("sh", ["-c", `command -v "$1"`, "sh", bin], { stdio: "pipe" });
@@ -107,7 +110,7 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   preflight(config);
-  const { server } = startServer(config);
+  const { server, db } = startServer(config);
   const localUrl = `http://127.0.0.1:${config.port}`;
 
   let tunnel: { url: string; mode: string; child?: ChildProcess } | null = null;
@@ -126,11 +129,32 @@ async function main(): Promise<void> {
   const publicUrl = tunnel?.url ?? localUrl;
   const mode = tunnel?.mode ?? "local only — not reachable by cloud agents";
 
+  // Google Doc board (Instinct). Non-fatal when not set up.
+  const dataDir = path.resolve(process.cwd(), config.dataDir);
+  if (config.drive.enabled && !process.argv.includes("--no-drive")) {
+    try {
+      const gapi = await ensureAuthed(config, dataDir);
+      if (gapi) {
+        const docId = await resolveDoc(gapi, config, dataDir);
+        startDocSync(db, config, gapi, docId, dataDir);
+        setDrive({ connected: true, docUrl: gapi.docUrl(docId) });
+      } else {
+        setDrive({ connected: false, lastError: "not authenticated" });
+      }
+    } catch (err) {
+      console.log(`drive board unavailable: ${String(err).slice(0, 200)}`);
+      setDrive({ connected: false, lastError: String(err).slice(0, 200) });
+    }
+  } else {
+    setDrive({ connected: false });
+  }
+
   console.log("\nbackchannel is up");
   console.log(`  UI:  ${localUrl}`);
   console.log(`  MCP: ${publicUrl}/mcp   (${mode})`);
+  console.log(`  Doc: ${state.drive.docUrl ?? (state.drive.connected ? "…" : "not connected")}`);
 
-  const { agents } = connectInstructions(config, publicUrl);
+  const { agents } = connectInstructions(config, { publicUrl, docUrl: state.drive.docUrl });
   for (const agent of agents) {
     const label = agent.name.toUpperCase();
     console.log(`\n── Paste this to ${label} ──${"─".repeat(Math.max(0, 40 - label.length))}`);

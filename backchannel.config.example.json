@@ -14,5 +14,10 @@
   },
   "rateLimit": {
     "perCallerPerMinute": 10
+  },
+  "drive": {
+    "enabled": true,
+    "docId": null,
+    "pollSeconds": 20
   }
 }

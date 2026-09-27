@@ -5,12 +5,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Config } from "./config.js";
 import type { Db, Thread } from "./db.js";
-import { BOOTSTRAP_ANSWER, BOOTSTRAP_QUESTION } from "./connect.js";
-import { runResponder, waitForThread, emitThread } from "./responder.js";
+import { askCore } from "./askcore.js";
 
-const DEDUPE_WINDOW_MS = 60_000;
-
-function makeRateLimiter(perMinute: number) {
+export function makeRateLimiter(perMinute: number) {
   const hits = new Map<string, number[]>();
   return (caller: string): boolean => {
     const now = Date.now();
@@ -67,99 +64,10 @@ function buildServer(db: Db, config: Config, caller: string, rateOk: () => boole
       if (!rateOk()) {
         return text("rate limited", { error: "rate limited" }, true);
       }
-
-      let thread: Thread | undefined;
-      if (thread_id) {
-        thread = db.getThread(thread_id);
-        if (!thread || thread.caller !== caller) {
-          return text(`unknown thread_id ${thread_id}`, { error: "unknown thread" }, true);
-        }
-      }
-
-      // Bootstrap question: answered locally, never sent to the responder.
-      const normalized = question
-        .trim()
-        .toLowerCase()
-        .replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
-      if (normalized === BOOTSTRAP_QUESTION) {
-        if (!thread) thread = db.createThread(caller, question);
-        db.addMessage(thread.id, caller, question);
-        db.addMessage(thread.id, "local", BOOTSTRAP_ANSWER);
-        const updated = db.setStatus(thread.id, "answered")!;
-        emitThread(updated);
-        return text(
-          JSON.stringify({ thread_id: thread.id, status: "answered", answer: BOOTSTRAP_ANSWER }),
-          { thread_id: thread.id, status: "answered", answer: BOOTSTRAP_ANSWER }
-        );
-      }
-
-      // Dedupe: identical question in the same thread within 60s returns current state.
-      if (thread) {
-        const last = db.lastCallerMessage(thread.id, caller);
-        if (last && last.body === question && Date.now() - last.created_at < DEDUPE_WINDOW_MS) {
-          const current = db.getThread(thread.id)!;
-          const answer =
-            current.status === "answered"
-              ? db.getMessages(current.id).filter((m) => m.sender !== caller).at(-1)?.body
-              : undefined;
-          return text(JSON.stringify({ thread_id: current.id, status: current.status, answer }), {
-            thread_id: current.id,
-            status: current.status,
-            answer,
-            deduplicated: true,
-          });
-        }
-        db.setStatus(thread.id, "pending");
-      } else {
-        thread = db.createThread(caller, question);
-      }
-
-      db.addMessage(thread.id, caller, question);
-      const pending = db.getThread(thread.id)!;
-      emitThread(pending);
-
-      void runResponder(db, config, thread.id);
-
-      const done = await waitForThread(thread.id, config.askTimeoutMs);
-      const current = done ?? db.getThread(thread.id)!;
-
-      if (current.status === "answered") {
-        const answer = db
-          .getMessages(current.id)
-          .filter((m) => m.sender !== caller)
-          .at(-1)?.body;
-        return text(JSON.stringify({ thread_id: current.id, status: "answered", answer }), {
-          thread_id: current.id,
-          status: "answered",
-          answer,
-        });
-      }
-      if (current.status === "needs_human") {
-        return text(
-          JSON.stringify({
-            thread_id: current.id,
-            status: "needs_human",
-            hint: "waiting for Tayden to answer; check later",
-          }),
-          {
-            thread_id: current.id,
-            status: "needs_human",
-            hint: "waiting for Tayden to answer; check later",
-          }
-        );
-      }
-      return text(
-        JSON.stringify({
-          thread_id: current.id,
-          status: "pending",
-          hint: "Call check(thread_id) in ~20 seconds. Do not re-ask.",
-        }),
-        {
-          thread_id: current.id,
-          status: "pending",
-          hint: "Call check(thread_id) in ~20 seconds. Do not re-ask.",
-        }
-      );
+      const result = await askCore(db, config, caller, question, thread_id);
+      const extra = { ...result } as Record<string, unknown>;
+      if (result.error) return text(result.error, extra, true);
+      return text(JSON.stringify(result), extra);
     }
   );
 

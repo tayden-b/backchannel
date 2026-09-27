@@ -14,6 +14,12 @@ export interface ResponderConfig {
   systemPrompt: string;
 }
 
+export interface DriveConfig {
+  enabled: boolean;
+  docId: string | null;
+  pollSeconds: number;
+}
+
 export interface Config {
   port: number;
   dataDir: string;
@@ -21,6 +27,7 @@ export interface Config {
   askTimeoutMs: number;
   responder: ResponderConfig;
   rateLimit: RateLimitConfig;
+  drive: DriveConfig;
 }
 
 const CONFIG_FILE = "backchannel.config.json";
@@ -75,6 +82,11 @@ export function loadConfig(cwd: string = process.cwd()): Config {
     },
     rateLimit: {
       perCallerPerMinute: Number(raw.rateLimit?.perCallerPerMinute ?? 10),
+    },
+    drive: {
+      enabled: raw.drive?.enabled ?? true,
+      docId: raw.drive?.docId ?? null,
+      pollSeconds: Number(raw.drive?.pollSeconds ?? 20),
     },
   };
 

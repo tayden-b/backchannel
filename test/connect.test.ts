@@ -9,32 +9,54 @@ const config: Config = {
   askTimeoutMs: 25000,
   responder: { command: "echo hi", cwd: null, timeoutMs: 90000, systemPrompt: "" },
   rateLimit: { perCallerPerMinute: 10 },
+  drive: { enabled: true, docId: null, pollSeconds: 20 },
 };
+
+const DOC = "https://docs.google.com/document/d/abc123/edit";
 
 describe("connectInstructions", () => {
   it("returns one entry per caller with tokenized MCP URL", () => {
-    const { agents } = connectInstructions(config, "https://abc.trycloudflare.com/");
+    const { agents } = connectInstructions(config, {
+      publicUrl: "https://abc.trycloudflare.com/",
+      docUrl: DOC,
+    });
     expect(agents).toHaveLength(2);
     const muse = agents.find((a) => a.name === "muse")!;
-    const instinct = agents.find((a) => a.name === "instinct")!;
     expect(muse.mcpUrl).toBe("https://abc.trycloudflare.com/mcp/muse-token");
-    expect(instinct.mcpUrl).toBe("https://abc.trycloudflare.com/mcp/instinct-token");
   });
 
-  it("paste text contains the URL, tool names, and bootstrap question", () => {
-    const { agents } = connectInstructions(config, "https://x.example.com");
-    for (const a of agents) {
-      expect(a.pasteText).toContain(a.mcpUrl);
-      expect(a.pasteText).toContain("`ask`");
-      expect(a.pasteText).toContain("what is this connection for");
-    }
-  });
-
-  it("instinct gets the 'Add this MCP server' first line", () => {
-    const { agents } = connectInstructions(config, "https://x.example.com");
+  it("instinct text contains the doc URL and ASK instructions", () => {
+    const { agents, drive } = connectInstructions(config, {
+      publicUrl: "https://x.example.com",
+      docUrl: DOC,
+    });
     const instinct = agents.find((a) => a.name === "instinct")!;
+    expect(instinct.pasteText).toContain(DOC);
+    expect(instinct.pasteText).toContain("## ASK instinct");
+    expect(instinct.pasteText).toContain("## ANSWER");
+    expect(instinct.pasteText).toContain("what is this connection for");
+    expect(drive.docUrl).toBe(DOC);
+  });
+
+  it("instinct text warns when the doc is not connected", () => {
+    const { agents } = connectInstructions(config, {
+      publicUrl: "https://x.example.com",
+      docUrl: null,
+    });
+    const instinct = agents.find((a) => a.name === "instinct")!;
+    expect(instinct.pasteText).toContain("not connected");
+  });
+
+  it("muse text points at spec.md and carries the token", () => {
+    const { agents } = connectInstructions(config, {
+      publicUrl: "https://x.example.com",
+      docUrl: DOC,
+    });
     const muse = agents.find((a) => a.name === "muse")!;
-    expect(instinct.pasteText.startsWith("Add this MCP server as a connection named backchannel:")).toBe(true);
-    expect(muse.pasteText.startsWith("Please add a custom connector")).toBe(true);
+    expect(muse.pasteText).toContain("https://x.example.com/spec.md");
+    expect(muse.pasteText).toContain("muse-token");
+    expect(muse.pasteText).toContain("pending");
+    expect(muse.pasteText).toContain("needs_human");
+    expect(muse.pasteText).toContain("what is this connection for");
   });
 });

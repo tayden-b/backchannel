@@ -185,9 +185,16 @@ async function loadConnect() {
     connectBody.innerHTML = `<div style="color:var(--muted)">No tunnel yet — run <code>npm run up</code></div>`;
     return;
   }
+  const drive = data.drive || {};
+  const driveRow = drive.connected
+    ? `<div style="color:var(--muted);margin-bottom:2px">Instinct board — Google Doc
+         ${drive.openQuestions ? `· ${drive.openQuestions} open` : "· watching"}${drive.lastError ? ` · <span style="color:var(--needs)">${esc(drive.lastError)}</span>` : ""}:</div>
+       <div class="mcpurl"><a href="${esc(drive.docUrl)}" target="_blank" style="color:var(--accent)">${esc(drive.docUrl)}</a></div>`
+    : `<div style="color:var(--muted);margin-bottom:6px">Google Doc board: <span style="color:var(--pending)">not connected</span> — run <code>npm run up</code> and follow the Google steps it prints.</div>`;
   connectBody.innerHTML = `
-    <div style="color:var(--muted);margin-bottom:2px">MCP endpoint (${esc(data.tunnelMode || "")}):</div>
-    <div class="mcpurl">${esc(data.publicUrl)}/mcp</div>
+    ${driveRow}
+    <div style="color:var(--muted);margin-bottom:2px">REST/MCP endpoint (${esc(data.tunnelMode || "")}):</div>
+    <div class="mcpurl">${esc(data.publicUrl)}</div>
     ${(data.agents || []).map(a => `
       <div class="agent">
         <span class="name">${esc(a.name)}</span>
