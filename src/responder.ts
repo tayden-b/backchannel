@@ -12,17 +12,23 @@ export function emitThread(thread: Thread): void {
 }
 
 const running = new Set<string>();
+const pendingRerun = new Set<string>();
 
 function buildPrompt(systemPrompt: string, messages: { sender: string; body: string }[]): string {
   const convo = messages.map((m) => `[${m.sender}]: ${m.body}`).join("\n");
   return `${systemPrompt}\n\nConversation so far:\n${convo}\n\nAnswer the latest question.`;
 }
 
-function runCommand(command: string, input: string, timeoutMs: number): Promise<{ stdout: string; error?: string }> {
+function runCommand(
+  command: string,
+  input: string,
+  timeoutMs: number,
+  cwd?: string | null
+): Promise<{ stdout: string; error?: string }> {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(command, { shell: true });
+      child = spawn(command, { shell: true, detached: true, cwd: cwd ?? undefined });
     } catch (err) {
       resolve({ stdout: "", error: String(err) });
       return;
@@ -37,7 +43,12 @@ function runCommand(command: string, input: string, timeoutMs: number): Promise<
       resolve({ stdout, error });
     };
     const timer = setTimeout(() => {
-      child.kill("SIGKILL");
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
       finish(`timeout after ${timeoutMs}ms`);
     }, timeoutMs);
     child.stdout.on("data", (d) => (stdout += d));
@@ -54,7 +65,10 @@ function runCommand(command: string, input: string, timeoutMs: number): Promise<
 }
 
 export async function runResponder(db: Db, config: Config, threadId: string): Promise<void> {
-  if (running.has(threadId)) return;
+  if (running.has(threadId)) {
+    pendingRerun.add(threadId);
+    return;
+  }
   running.add(threadId);
   try {
     const thread = db.getThread(threadId);
@@ -68,7 +82,12 @@ export async function runResponder(db: Db, config: Config, threadId: string): Pr
 
     const messages = db.getMessages(threadId);
     const prompt = buildPrompt(config.responder.systemPrompt, messages);
-    const { stdout, error } = await runCommand(config.responder.command, prompt, config.responder.timeoutMs);
+    const { stdout, error } = await runCommand(
+      config.responder.command,
+      prompt,
+      config.responder.timeoutMs,
+      config.responder.cwd
+    );
 
     const answer = stdout.trim();
     if (error) {
@@ -101,6 +120,9 @@ export async function runResponder(db: Db, config: Config, threadId: string): Pr
     }
   } finally {
     running.delete(threadId);
+    if (pendingRerun.delete(threadId)) {
+      void runResponder(db, config, threadId);
+    }
   }
 }
 

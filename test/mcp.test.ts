@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -109,6 +109,39 @@ describe("mcp flow", () => {
     await client.close();
   });
 
+  it("authenticated GET /mcp is handled by the transport (not express 404)", async () => {
+    const res = await fetch(`${ctx.base}/mcp`, {
+      headers: { Authorization: `Bearer ${TOKEN}`, Accept: "application/json, text/event-stream" },
+    });
+    // Stateless transport may answer 405 or open an SSE stream — either way not 404.
+    expect(res.status).not.toBe(404);
+    expect([200, 405]).toContain(res.status);
+    const unauth = await fetch(`${ctx.base}/mcp`);
+    expect(unauth.status).toBe(401);
+  });
+
+  it("replying to an answered thread appends a human message and stays answered", async () => {
+    const client = await mcpClient(ctx.base);
+    const asked = structured(await client.callTool({ name: "ask", arguments: { question: "reply target" } }));
+    expect(asked.status).toBe("answered");
+
+    const res = await fetch(`${ctx.base}/api/threads/${asked.thread_id}/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: "correction from Tayden" }),
+    });
+    expect(res.status).toBe(200);
+
+    const checked = structured(
+      await client.callTool({ name: "check", arguments: { thread_id: asked.thread_id } })
+    );
+    expect(checked.status).toBe("answered");
+    const msgs = checked.messages as { sender: string; body: string }[];
+    expect(msgs.at(-1)?.sender).toBe("human");
+    expect(msgs.at(-1)?.body).toBe("correction from Tayden");
+    await client.close();
+  });
+
   it("list_threads returns only the caller's threads", async () => {
     const client = await mcpClient(ctx.base);
     const listed = structured(await client.callTool({ name: "list_threads", arguments: {} }));
@@ -156,6 +189,54 @@ describe("needs_human flow", () => {
     expect(msgs.at(-1)?.sender).toBe("human");
     await client.close();
   });
+});
+
+describe("responder rerun queue", () => {
+  let ctx: Awaited<ReturnType<typeof startServer>>;
+  beforeAll(async () => {
+    ctx = await startServer({
+      responder: {
+        command: `sh -c 'cat >/dev/null; sleep 1; echo ok'`,
+        timeoutMs: 15000,
+        systemPrompt: "test",
+      },
+      askTimeoutMs: 10000,
+    });
+  });
+  afterAll(async () => {
+    ctx.db.close();
+    ctx.server.close();
+    rmSync(ctx.dir, { recursive: true, force: true });
+  });
+
+  it("re-runs the responder when a message arrives mid-run", async () => {
+    const client = await mcpClient(ctx.base);
+    const first = structured(await client.callTool({ name: "ask", arguments: { question: "q1" } }));
+    const threadId = first.thread_id as string;
+    expect(first.status).toBe("answered");
+
+    const p2 = client.callTool({ name: "ask", arguments: { question: "q2", thread_id: threadId } });
+    await new Promise((r) => setTimeout(r, 200));
+    const p3 = client.callTool({ name: "ask", arguments: { question: "q3", thread_id: threadId } });
+    await Promise.all([p2, p3]);
+
+    await vi.waitFor(
+      () => {
+        const msgs = ctx.db.getMessages(threadId);
+        // q3 arrives while the q2 run is in flight, so its caller message lands
+        // before q2's reply; the queued rerun must still produce a reply after q3.
+        const senders = msgs.map((m) => m.sender);
+        expect(senders).toEqual(["muse", "local", "muse", "muse", "local", "local"]);
+        expect(msgs[3].body).toBe("q3");
+        expect(msgs.at(-1)?.sender).toBe("local");
+      },
+      { timeout: 10000, interval: 100 }
+    );
+
+    const checked = structured(await client.callTool({ name: "check", arguments: { thread_id: threadId } }));
+    expect(checked.status).toBe("answered");
+    await client.close();
+  }, 15000);
 });
 
 describe("rate limit", () => {

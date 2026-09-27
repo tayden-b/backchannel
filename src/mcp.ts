@@ -232,6 +232,10 @@ export function mcpRouter(db: Db, config: Config): Router {
 
   router.post("/mcp", handler);
   router.post("/mcp/:token", handler);
+  router.get("/mcp", handler);
+  router.get("/mcp/:token", handler);
+  router.delete("/mcp", handler);
+  router.delete("/mcp/:token", handler);
 
   return router;
 }

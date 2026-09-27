@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 
 export interface RateLimitConfig {
@@ -8,6 +9,7 @@ export interface RateLimitConfig {
 
 export interface ResponderConfig {
   command: string | null;
+  cwd: string | null;
   timeoutMs: number;
   systemPrompt: string;
 }
@@ -26,6 +28,12 @@ const EXAMPLE_FILE = "backchannel.config.example.json";
 
 function randomToken(): string {
   return randomBytes(24).toString("base64url");
+}
+
+function resolveCwd(raw: string | null | undefined, configDir: string): string | null {
+  if (!raw) return null;
+  const expanded = raw === "~" ? os.homedir() : raw.startsWith("~/") ? path.join(os.homedir(), raw.slice(2)) : raw;
+  return path.resolve(configDir, expanded);
 }
 
 export function loadConfig(cwd: string = process.cwd()): Config {
@@ -61,6 +69,7 @@ export function loadConfig(cwd: string = process.cwd()): Config {
     askTimeoutMs: Number(raw.askTimeoutMs ?? 25000),
     responder: {
       command: raw.responder?.command ?? null,
+      cwd: resolveCwd(raw.responder?.cwd, cwd),
       timeoutMs: Number(raw.responder?.timeoutMs ?? 90000),
       systemPrompt: raw.responder?.systemPrompt ?? "",
     },
