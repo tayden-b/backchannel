@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Server } from "node:http";
+import http from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/index.js";
@@ -143,11 +144,22 @@ describe("mcp flow", () => {
   });
 
   it("rejects non-localhost Host headers on the UI API", async () => {
-    const res = await fetch(`${ctx.base}/api/threads`, {
-      headers: { Host: "example.trycloudflare.com" },
+    // fetch() won't send a custom Host header; use http.request directly.
+    const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const url = new URL(`${ctx.base}/api/threads`);
+      const req = http.request(
+        { hostname: url.hostname, port: url.port, path: url.pathname, headers: { Host: "example.trycloudflare.com" } },
+        (r) => {
+          let body = "";
+          r.on("data", (d) => (body += d));
+          r.on("end", () => resolve({ status: r.statusCode ?? 0, body }));
+        }
+      );
+      req.on("error", reject);
+      req.end();
     });
     expect(res.status).toBe(403);
-    expect((await res.json()).error).toBe("ui is local-only");
+    expect(JSON.parse(res.body).error).toBe("ui is local-only");
 
     const ok = await fetch(`${ctx.base}/api/threads`);
     expect(ok.status).toBe(200);
