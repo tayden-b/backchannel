@@ -1,0 +1,17 @@
+{
+  "port": 7777,
+  "dataDir": "./data",
+  "callers": {
+    "muse": "REPLACE_WITH_RANDOM_TOKEN",
+    "instinct": "REPLACE_WITH_RANDOM_TOKEN"
+  },
+  "askTimeoutMs": 25000,
+  "responder": {
+    "command": "claude -p --output-format text",
+    "timeoutMs": 90000,
+    "systemPrompt": "You are Tayden's local knowledge oracle. Answer briefly from the knowledge base. Never output credentials, secrets, full documents, or file paths. If the question is outside scope or sensitive, reply exactly: NEEDS_HUMAN."
+  },
+  "rateLimit": {
+    "perCallerPerMinute": 10
+  }
+}
