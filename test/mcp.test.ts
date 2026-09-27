@@ -142,6 +142,17 @@ describe("mcp flow", () => {
     await client.close();
   });
 
+  it("rejects non-localhost Host headers on the UI API", async () => {
+    const res = await fetch(`${ctx.base}/api/threads`, {
+      headers: { Host: "example.trycloudflare.com" },
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("ui is local-only");
+
+    const ok = await fetch(`${ctx.base}/api/threads`);
+    expect(ok.status).toBe(200);
+  });
+
   it("list_threads returns only the caller's threads", async () => {
     const client = await mcpClient(ctx.base);
     const listed = structured(await client.callTool({ name: "list_threads", arguments: {} }));

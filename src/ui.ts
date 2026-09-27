@@ -17,8 +17,22 @@ function threadWithMessages(db: Db, threadId: string) {
   return { ...thread, messages: db.getMessages(threadId) };
 }
 
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
 export function uiRouter(db: Db, config: Config): Router {
   const router = Router();
+
+  // The tunnel proxies every path; the UI must stay local-only.
+  router.use((req, res, next) => {
+    const raw = (req.headers.host ?? "").toLowerCase();
+    const host = raw.startsWith("[") ? raw.slice(0, raw.indexOf("]") + 1) : raw.split(":")[0];
+    const bare = host.replace(/^\[|\]$/g, "");
+    if (!LOCAL_HOSTS.has(host) && !LOCAL_HOSTS.has(bare)) {
+      res.status(403).json({ error: "ui is local-only" });
+      return;
+    }
+    next();
+  });
 
   router.get("/", (_req, res) => {
     res.type("html").send(INDEX_HTML);
